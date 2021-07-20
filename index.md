@@ -1,4 +1,4 @@
-## Welcome to GitHub Pages
+## T-Watch + bno085 == Wearable IoT IMU
 
 You can use the [editor on GitHub](https://github.com/tejaswigowda/t-watch-bno085/edit/gh-pages/index.md) to maintain and preview the content for your website in Markdown files.
 
