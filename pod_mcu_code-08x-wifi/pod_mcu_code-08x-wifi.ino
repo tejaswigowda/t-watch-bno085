@@ -16,13 +16,13 @@ BMA *sensor;
 #include "SparkFun_BNO080_Arduino_Library.h" // Click here to get the library: http://librarymanager/All#SparkFun_BNO080
 BNO080 myIMU;
 
+#include "wifilogin.h"
 
+String mac_address;
 
-const char* ssid = "NETGEAR31";
-const char* password = "fluffywind2904";
 
 //Your Domain name with URL path or IP address with path
-const char* serverName = "http://13.56.213.25:1234/sendData";
+const char* serverName = "http://192.168.0.196:1234/setValue";
 
 // the following variables are unsigned longs because the time, measured in
 // milliseconds, will quickly become a bigger number than can be stored in an int.
@@ -68,12 +68,13 @@ void setup() {
  
   Serial.println("Timer set to 5 seconds (timerDelay variable), it will take 5 seconds before publishing the first reading.");
 
+  mac_address = WiFi.macAddress();
 
   delay(100); //  Wait for BNO to boot
   // Start i2c and BNO080
   Wire.flush();   // Reset I2C
   myIMU.begin(BNO080_DEFAULT_ADDRESS, Wire);
-  Wire.begin(25, 26);
+  Wire.begin(22, 21);
 
    if (myIMU.begin() == false)
   {
@@ -95,12 +96,17 @@ void loop() {
     //Check WiFi connection status
     if(WiFi.status()== WL_CONNECTED){
 
+  float quatI;
+  float quatJ;
+  float quatK;
+  float quatReal;
+  
   if (myIMU.dataAvailable() == true)
   {
-    float quatI = myIMU.getQuatI();
-    float quatJ = myIMU.getQuatJ();
-    float quatK = myIMU.getQuatK();
-    float quatReal = myIMU.getQuatReal();
+     quatI = myIMU.getQuatI();
+     quatJ = myIMU.getQuatJ();
+     quatK = myIMU.getQuatK();
+     quatReal = myIMU.getQuatReal();
     float quatRadianAccuracy = myIMU.getQuatRadianAccuracy();
 
     Serial.print(quatI, 2);
@@ -124,9 +130,9 @@ void loop() {
   
       
      
-     // String url = String(serverName) + "?x=" + x + "&y=" + y + "&z=" + z; 
+      String url = String(serverName) + "?id=" + mac_address + "&w=" + quatI + "&x=" + quatJ + "&y=" + quatK + "&z=" + quatReal; 
      // Serial.println(url);       
-     // response = httpGETRequest(url.c_str());
+      response = httpGETRequest(url.c_str());
      // Serial.println(response);
 
 
