@@ -1,14 +1,21 @@
 
 
 #include <WiFi.h>
+#include <WiFiMulti.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <WebSocketsClient.h>
+
+WiFiMulti WiFiMulti;
+WebSocketsClient webSocket;
+
 
 
 #define LILYGO_WATCH_2019_WITH_TOUCH 
 #include <LilyGoWatch.h>
 TTGOClass *watch;
 TFT_eSPI *tft;
-BMA *sensor;
+
 
 
 #include <Wire.h>
@@ -34,6 +41,54 @@ unsigned long timerDelay = 10;
 
 String response;
 
+
+void hexdump(const void *mem, uint32_t len, uint8_t cols = 16) {
+  const uint8_t* src = (const uint8_t*) mem;
+  Serial.printf("\n[HEXDUMP] Address: 0x%08X len: 0x%X (%d)", (ptrdiff_t)src, len, len);
+  for(uint32_t i = 0; i < len; i++) {
+    if(i % cols == 0) {
+      Serial.printf("\n[0x%08X] 0x%08X: ", (ptrdiff_t)src, i);
+    }
+    Serial.printf("%02X ", *src);
+    src++;
+  }
+  Serial.printf("\n");
+}
+
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch(type) {
+    case WStype_DISCONNECTED:
+      Serial.printf("[WSc] Disconnected!\n");
+      break;
+    case WStype_CONNECTED:
+      Serial.printf("[WSc] Connected to url: %s\n", payload);
+
+      // send message to server when Connected
+      webSocket.sendTXT("Connected");
+      break;
+    case WStype_TEXT:
+      Serial.printf("[WSc] get text: %s\n", payload);
+
+      // send message to server
+      // webSocket.sendTXT("message here");
+      break;
+    case WStype_BIN:
+      Serial.printf("[WSc] get binary length: %u\n", length);
+      hexdump(payload, length);
+
+      // send data to server
+      // webSocket.sendBIN(payload, length);
+      break;
+    case WStype_ERROR:      
+    case WStype_FRAGMENT_TEXT_START:
+    case WStype_FRAGMENT_BIN_START:
+    case WStype_FRAGMENT:
+    case WStype_FRAGMENT_FIN:
+      break;
+  }
+}
+
+
 void setup() {
   Serial.begin(115200);
 
@@ -56,12 +111,18 @@ void setup() {
     tft->setTextColor(TFT_WHITE, TFT_BLACK);
 
 
-      WiFi.begin(ssid, password);
+   //   WiFi.begin(ssid, password);
+
+   
+  WiFiMulti.addAP(ssid, password);
+  
   Serial.println("Connecting");
-  while(WiFi.status() != WL_CONNECTED) {
-    delay(500);
+
+  while(WiFiMulti.run() != WL_CONNECTED) {
+    delay(100);
     Serial.print(".");
   }
+  
   Serial.println("");
   Serial.print("Connected to WiFi network with IP Address: ");
   Serial.println(WiFi.localIP());
@@ -69,6 +130,21 @@ void setup() {
   Serial.println("Timer set to 5 seconds (timerDelay variable), it will take 5 seconds before publishing the first reading.");
 
   mac_address = WiFi.macAddress();
+
+  delay(500);
+  // server address, port and URL
+  webSocket.begin("192.168.0.198", 3000, "/");
+
+  // event handler
+  webSocket.onEvent(webSocketEvent);
+
+  // use HTTP Basic Authorization this is optional remove if not needed
+  // webSocket.setAuthorization("user", "Password");
+
+  // try ever 5000 again if connection has failed
+  webSocket.setReconnectInterval(5000);
+
+  //   webSocket.sendTXT(String(millis()).c_str());
 
   delay(100); //  Wait for BNO to boot
   // Start i2c and BNO080
@@ -92,6 +168,7 @@ void setup() {
 }
 
 void loop() {
+    webSocket.loop();
  if ((millis() - lastTime) > timerDelay) {
     //Check WiFi connection status
     if(WiFi.status()== WL_CONNECTED){
@@ -130,11 +207,12 @@ void loop() {
   
       
      
-      String url = String(serverName) + "?id=" + mac_address + "&w=" + quatI + "&x=" + quatJ + "&y=" + quatK + "&z=" + quatReal; 
+      String url = "{\"id\": \"" + mac_address + "\",\"w\":" + quatI + ",\"x\":" + quatJ + ",\"y\":" + quatK + ",\"z\":" + quatReal + "}"; 
      // Serial.println(url);       
-      response = httpGETRequest(url.c_str());
-     // Serial.println(response);
+     // response = httpGETRequest(url.c_str());
+         webSocket.sendTXT(url.c_str());
 
+     // Serial.println(response);
 
       
 

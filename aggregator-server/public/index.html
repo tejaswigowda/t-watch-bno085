@@ -1,0 +1,136 @@
+<html>
+<head>
+  <meta name="viewport" content="initial-scale=1.0,   user-scalable=no, width=device-width, maximum-scale=1.0">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script src='asyncReq.js'> </script>
+  <script src="https://cdn.jsdelivr.net/npm/quaternion@1.1.0/quaternion.min.js"></script>
+  <script>
+
+    var mac_addr;
+         function WebSocketBegin() {
+            mac_addr = window.location.hash.replace("#","");
+            if ("WebSocket" in window) {
+               console.log("WebSocket is supported by your Browser!");
+
+               // Let us open a web socket
+               var ws = new WebSocket("ws://localhost:3000/");
+
+               ws.onopen = function() {
+                  // Web Socket is connected, send data using send()
+                  ws.send("Message to send");
+                  console.log("Message is sent...");
+               };
+
+               ws.onmessage = function (evt) {
+                  var received_msg = evt.data;
+                 // console.log(received_msg);
+                   obj = received_msg;
+                   updateCube();
+               };
+
+               ws.onclose = function() {
+
+                  // websocket is closed.
+                  console.log("Connection is closed...");
+               };
+            } else {
+
+               // The browser doesn't support WebSocket
+               console.log("WebSocket NOT supported by your Browser!");
+            }
+         }
+
+var wZ= 0
+var xZ= 0
+var yZ = 0
+var zZ = 1
+var obj;
+
+    function start()
+    {
+      var id = window.location.hash.replace("#","");
+      loadFile("./getValue?id="+ id, function(data){
+         obj = data;
+      });
+    }
+    function updateCube(){
+      objT = JSON.parse(obj);
+      if(objT.id !== mac_addr) return;
+      document.getElementById("data").innerHTML = obj;  
+      w = objT.w
+      x = objT.x
+      y = objT.y
+      z = objT.z
+      var q = new Quaternion(w,x,y,z);
+      var qC = new Quaternion(wZ,xZ,yZ,zZ).inverse()
+      var x = q.mul(qC).toMatrix4();
+      document.getElementById("cube").style.transform = 'translateZ(-100px) matrix3d(' + x + ')';
+    }
+  </script>
+</head>
+<body style='background:black;color:white' onload='WebSocketBegin()'>
+  <div id='data'></div>
+   <div class="scene">
+  <div id='cube' class="cube">
+    <div class="cube__face cube__face--front">front</div>
+    <div class="cube__face cube__face--back">back</div>
+    <div class="cube__face cube__face--right">right</div>
+    <div class="cube__face cube__face--left">left</div>
+    <div class="cube__face cube__face--top">top</div>
+    <div class="cube__face cube__face--bottom">bottom</div>
+  </div>
+</div>
+</body>
+<style>
+
+.scene {
+  width: 200px;
+  height: 200px;
+  margin: 80px;
+  perspective: 400px;
+}
+
+.cube {
+  width: 200px;
+  height: 200px;
+  position: relative;
+  transform-style: preserve-3d;
+  transform: translateZ(-100px);
+}
+
+.cube.show-front  { transform: translateZ(-100px) rotateY(   0deg); }
+.cube.show-right  { transform: translateZ(-100px) rotateY( -90deg); }
+.cube.show-back   { transform: translateZ(-100px) rotateY(-180deg); }
+.cube.show-left   { transform: translateZ(-100px) rotateY(  90deg); }
+.cube.show-top    { transform: translateZ(-100px) rotateX( -90deg); }
+.cube.show-bottom { transform: translateZ(-100px) rotateX(  90deg); }
+
+.cube__face {
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  border: 0px solid black;
+  line-height: 200px;
+  font-size: 0px;
+  font-weight: bold;
+  color: white;
+  text-align: center;
+}
+
+.cube__face--front  { background: hsla(  0, 100%, 50%, 0.7); }
+.cube__face--right  { background: hsla( 60, 100%, 50%, 0.7); }
+.cube__face--back   { background: hsla(120, 100%, 50%, 0.7); }
+.cube__face--left   { background: hsla(180, 100%, 50%, 0.7); }
+.cube__face--top    { background: hsla(240, 100%, 50%, 0.7); }
+.cube__face--bottom { background: hsla(300, 100%, 50%, 0.7); }
+
+.cube__face--front  { transform: rotateY(  0deg) translateZ(100px); }
+.cube__face--right  { transform: rotateY( 90deg) translateZ(100px); }
+.cube__face--back   { transform: rotateY(180deg) translateZ(100px); }
+.cube__face--left   { transform: rotateY(-90deg) translateZ(100px); }
+.cube__face--top    { transform: rotateX( 90deg) translateZ(100px); }
+.cube__face--bottom { transform: rotateX(-90deg) translateZ(100px); }
+
+</style>
+
+</html>
