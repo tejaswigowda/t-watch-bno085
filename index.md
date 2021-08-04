@@ -23,11 +23,16 @@ Solder the bno08x chip to the TTGO T-watch baseplate (I2C connectivity). Test co
 
 ### Test code
   `pod_mcu_code-08x-test`
-  Load this code[https://github.com/tejaswigowda/t-watch-bno085/blob/main/pod_mcu_code-08x-test/pod_mcu_code-08x-test.ino] using the Arduino IDE. If everything goes right you should have the quaternion output over the serial port. You can test using [Webserial here](https://tejaswigowda.com/webserial-imu-debug/).
+  Load this code[https://github.com/tejaswigowda/t-watch-bno085/blob/main/pod_mcu_code-08x-test/pod_mcu_code-08x-test.ino] using the Arduino IDE. 
+  
+  If everything goes right you should have the quaternion output over the serial port. You can test using [Webserial here](https://tejaswigowda.com/webserial-imu-debug/).
 
 ### Wifi Visualization
 -`pod_mcu_code-08x-wifi`: Load using arduino IDE. Please add your wifi login ceredentialis in `wifilogin.h`.
--`pod_mcu_code-08x-wifi`: cd to this folder and run the server using `node server.js`. Then open `http://localhost:1234#<mac_address>` in your browser to visulize the IMU data.
+
+-`pod_mcu_code-08x-wifi`: cd to this folder and run the server using `node server.js`. 
+
+Then open `http://localhost:1234#<mac_address>` in your browser to visulize the IMU data.
 
 
 
