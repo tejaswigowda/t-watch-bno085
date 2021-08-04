@@ -28,7 +28,7 @@ Solder the bno08x chip to the TTGO T-watch baseplate (I2C connectivity). Test co
   
   If everything goes right you should have the quaternion output over the serial port. You can test using [Webserial here](https://tejaswigowda.com/webserial-imu-debug/).
 
-### Wifi Visualization
+### Wifi Visualization (via Websockets)
 -`pod_mcu_code-08x-wifi`: Load using arduino IDE. Please add your wifi login ceredentialis in `wifilogin.h`.
 
 -`pod_mcu_code-08x-wifi`: cd to this folder and run the server using `node server.js`. 
