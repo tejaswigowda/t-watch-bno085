@@ -8,8 +8,8 @@ A simple project that fuses T-watch with bno08x
 ## Hardware
 
 ### Requirements
-- TTGO T-watch (https://www.aliexpress.com/item/1005001581849024.html; https://www.amazon.com/LILYGO-GPS-Lora-Programmable-Environmental/dp/B07ZWXV5FQ)
-- bno08x (https://www.aliexpress.com/item/4000263329804.html; https://www.amazon.com/Taidacent-Nine-axis-High-Precision-Accelerometer-Magnetometer/dp/B0836WJLVH/)
+- TTGO T-watch (<https://www.aliexpress.com/item/1005001581849024.html>; <https://www.amazon.com/LILYGO-GPS-Lora-Programmable-Environmental/dp/B07ZWXV5FQ>)
+- bno08x (<https://www.aliexpress.com/item/4000263329804.html>; <https://www.amazon.com/Taidacent-Nine-axis-High-Precision-Accelerometer-Magnetometer/dp/B0836WJLVH/>)
 - wires
 - soldering equipment 
 
@@ -33,7 +33,7 @@ Solder the bno08x chip to the TTGO T-watch baseplate (I2C connectivity). Test co
 
 -`pod_mcu_code-08x-wifi`: cd to this folder and run the server using `node server.js`. 
 
-Then open `http://localhost:1234#<mac_address>` in your browser to visulize the IMU data.
+Then open <http://localhost:1234#[mac_address]> in your browser to visulize the IMU data.
 
 
 
