@@ -37,7 +37,7 @@ Then open <http://localhost:1234#[mac_address]> in your browser to visulize the 
 
 
 
-
+<img src='giphy.gif'>
 
 
 
