@@ -1,6 +1,7 @@
 # T-Watch + bno085 === Wearable IoT IMU
 
 ![Main](main.jpg)
+![Wearable](wearable.png)
 
 A simple project that fuses T-watch with bno08x
 
