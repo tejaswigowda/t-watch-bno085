@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<title>WebX Cube</title>
+	<style>
+		body {
+			margin: 0;
+		}
+	</style>
+</head>
+
+<body>
+	<button style="position: fixed; z-index: 100;" id="blebtn">Connect XCube </button>
+</body>
+<script>
+	var theModel;
+	var renderer, scene, camera;
+	window.rotateModel = function(x, y, z, w) {
+		// Apply rotation to the model
+		console.log("rotateModel", x, y, z, w);
+		theModel.quaternion.set(x, y, z, w);
+		renderer.render(scene, camera);
+	}
+</script>
+<script type="module" src="main.js"></script>
+
+</html>
