@@ -1,38 +1,31 @@
-/****************************************************************
- * Example6_DMP_Quat9_Orientation.ino
- * ICM 20948 Arduino Library Demo
- * Initialize the DMP based on the TDK InvenSense ICM20948_eMD_nucleo_1.0 example-icm20948
- * Paul Clark, April 25th, 2021
- * Based on original code by:
- * Owen Lyke @ SparkFun Electronics
- * Original Creation Date: April 17 2019
- * 
- * ** This example is based on InvenSense's _confidential_ Application Note "Programming Sequence for DMP Hardware Functions".
- * ** We are grateful to InvenSense for sharing this with us.
- * 
- * ** Important note: by default the DMP functionality is disabled in the library
- * ** as the DMP firmware takes up 14301 Bytes of program memory.
- * ** To use the DMP, you will need to:
- * ** Edit ICM_20948_C.h
- * ** Uncomment line 29: #define ICM_20948_USE_DMP
- * ** Save changes
- * ** If you are using Windows, you can find ICM_20948_C.h in:
- * ** Documents\Arduino\libraries\SparkFun_ICM-20948_ArduinoLibrary\src\util
- *
- * Please see License.md for the license information.
- *
- * Distributed as-is; no warranty is given.
- ***************************************************************/
 
-//#define QUAT_ANIMATION // Uncomment this line to output data in the correct format for ZaneL's Node.js Quaternion animation tool: https://github.com/ZaneL/quaternion_sensor_3d_nodejs
+#include "esp_adc_cal.h"
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
+#include "esp_bt_device.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include <WiFiManager.h>  //https://github.com/tzapu/WiFiManager
+
+#include <Wire.h>
+
+#include "SparkFun_BNO080_Arduino_Library.h" // Click here to get the library: http://librarymanager/All#SparkFun_BNO080
+//ICM_20948 myIMU;
+
+String response;
+
+#include <ESPmDNS.h>
+#include <WiFiUdp.h>
+#include <ArduinoOTA.h>
+#include <EEPROM.h>
 
 #include "ICM_20948.h" // Click here to get the library: http://librarymanager/All#SparkFun_ICM_20948_IMU
-
-//#define USE_SPI       // Uncomment this to use SPI
-
+//ICM_20948 myIMU;
 #define SERIAL_PORT Serial
 
-#define SPI_PORT SPI // Your desired SPI port.       Used only when "USE_SPI" is defined
 #define CS_PIN 2     // Which pin you connect CS to. Used only when "USE_SPI" is defined
 
 #define WIRE_PORT Wire // Your desired Wire port.      Used when "USE_SPI" is not defined
@@ -40,207 +33,373 @@
 // On the SparkFun 9DoF IMU breakout the default is 1, and when the ADR jumper is closed the value becomes 0
 #define AD0_VAL 0
 
-#ifdef USE_SPI
-ICM_20948_SPI myICM; // If using SPI create an ICM_20948_SPI object
-#else
-ICM_20948_I2C myICM; // Otherwise create an ICM_20948_I2C object
-#endif
 
-void setup()
-{
 
-  SERIAL_PORT.begin(115200); // Start the serial console
-#ifndef QUAT_ANIMATION
-  SERIAL_PORT.println(F("ICM-20948 Example"));
-#endif
+//ICM_20948_I2C myICM; // Otherwise create an ICM_20948_I2C object
+BNO080 myBNO; 
 
-  delay(100);
 
-#ifndef QUAT_ANIMATION
-  while (SERIAL_PORT.available()) // Make sure the serial RX buffer is empty
-    SERIAL_PORT.read();
+// define the number of bytes you want to access
+#define EEPROM_SIZE 1
 
-  SERIAL_PORT.println(F("Starting.... "));
+unsigned long lastTime = 0;
+unsigned long timerDelay = 1000 * 60 * 2; // Timer set to 2 minutes
 
-  //while (!SERIAL_PORT.available()) // Wait for the user to press a key (send any serial character)
-  //  ;
-#endif
+String batt_level = "";
+bool displayOn = true;
 
-#ifdef USE_SPI
-  SPI_PORT.begin();
-#else
-  WIRE_PORT.begin(9,8);
-  WIRE_PORT.setClock(400000);
-#endif
+bool otaMode = false;
 
-#ifndef QUAT_ANIMATION
-  //myICM.enableDebugging(); // Uncomment this line to enable helpful debug messages on Serial
-#endif
+int writeCount = 0;
+
+boolean start = false;
+
+BLECharacteristic *pCharacteristic;
+
+struct Quat {
+  float x;
+  float y;
+  float z;
+  float w;
+} quat;
+struct Euler {
+  float x;
+  float y;
+  float z;
+} euler;
+char buff[256];
+bool rtcIrq = false;
+bool initial = 1;
+bool otaStart = false;
+
+uint8_t func_select = 0;
+uint8_t omm = 99;
+uint8_t xcolon = 0;
+uint32_t targetTime = 0;  // for next 1 second timeout
+uint32_t colour = 0;
+int vref = 1100;
+
+bool pressed = false;
+uint32_t pressedTime = 0;
+bool charge_indication = false;
+
+uint8_t hh, mm, ss;
+String mac_address;
+int pacnum = 0;
+
+#define TP_PIN_PIN 33
+#define I2C_SDA_PIN 21
+#define I2C_SCL_PIN 22
+#define IMU_INT_PIN 38
+#define RTC_INT_PIN 34
+#define BATT_ADC_PIN 35
+#define VBUS_PIN 36
+#define TP_PWR_PIN 25
+#define LED_PIN 4
+#define CHARGE_PIN 32
+
+#define BLE_NAME "WebXCube"  //must match filters name in bluetoothterminal.js- navigator.bluetooth.requestDevice
+
+BLEUUID SERVICE_UUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");  // UART service UUID
+BLEUUID CHARACTERISTIC_UUID("6E400002-B5A3-F393-E0A9-E50E24DCCA9E");
+BLEAdvertising *pAdvertising;
+
+void setupWiFi() {
+  WiFiManager wifiManager;
+  //set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
+  wifiManager.setAPCallback(configModeCallback);
+  wifiManager.setBreakAfterConfig(true);  // Without this saveConfigCallback does not get fired
+  mac_address = WiFi.macAddress();
+  Serial.println(mac_address);
+  wifiManager.autoConnect(String("MM-" + mac_address).c_str());
+}
+
+void configModeCallback(WiFiManager *myWiFiManager) {
+  Serial.println("Entered config mode");
+  Serial.println(WiFi.softAPIP());
+  //if you used auto generated SSID, print it
+  Serial.println(myWiFiManager->getConfigPortalSSID());
+}
+
+void drawProgressBar(uint16_t x0, uint16_t y0, uint16_t w, uint16_t h, uint8_t percentage, uint16_t frameColor, uint16_t barColor) {
+
+}
+
+void setupOTA() {
+
+  // Hostname defaults to esp3232-[MAC]
+  ArduinoOTA.setHostname(mac_address.c_str());
+
+  ArduinoOTA.onStart([]() {
+              String type;
+              if (ArduinoOTA.getCommand() == U_FLASH)
+                type = "sketch";
+              else  // U_SPIFFS
+                type = "filesystem";
+
+              // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+              Serial.println("Start updating " + type);
+              otaStart = true;
+            })
+    .onEnd([]() {
+      Serial.println("\nEnd");
+      delay(500);
+    })
+    .onProgress([](unsigned int progress, unsigned int total) {
+      // Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+      int percentage = (progress / (total / 100));
+    })
+    .onError([](ota_error_t error) {
+      Serial.printf("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+      else if (error == OTA_END_ERROR) Serial.println("End Failed");
+
+      delay(3000);
+      otaStart = false;
+      initial = 1;
+      targetTime = millis() + 1000;
+      omm = 99;
+    });
+
+  ArduinoOTA.begin();
+}
+
+String getVoltage() {
+  uint16_t v = analogRead(BATT_ADC_PIN);
+  float battery_voltage = ((float)v / 4095.0) * 2.0 * 3.3 * (vref / 1000.0);
+  return String(battery_voltage) + "V";
+}
+
+String Bone = "N/A";
+bool calibrated = false;
+
+class MyCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pChar) {
+    String value = pChar->getValue();
+    Serial.print("Received Value: ");
+    Serial.println(value.c_str());
+
+    if (value == "start") {
+      if (!start) {
+      }
+    } else if (value == "calibrate") {
+      start = true;
+    } else if (value == "dispoff") {
+      if (calibrated) {
+
+        displayOn = false;
+      }
+
+    }
+
+        else if (value == "restart") {
+      delay(3000);
+      ESP.restart();
+    }
+
+    else if (value == "ota") {
+      EEPROM.write(0, 1);
+      EEPROM.commit();
+      delay(2000);
+      ESP.restart();
+    } else {
+      Bone = String(value.c_str());
+    }
+  }
+};
+
+class ServerCallbacks : public BLEServerCallbacks {
+  void onDisconnect(BLEServer *server) {
+    Serial.print("Disconnected");
+    pAdvertising->start();
+  }
+};
+
+void setup() {
+  Serial.begin(115200);
+  EEPROM.begin(EEPROM_SIZE);
+
+  pinMode(LED_PIN, OUTPUT);
+
+  int otaState = EEPROM.read(0);
+  Serial.println(otaState);
+
+  if (otaState == 1) {
+    EEPROM.write(0, 0);
+    EEPROM.commit();
+    otaMode = true;
+    otaStart = true;
+    setupWiFi();
+    setupOTA();
+    return;
+  }
+
+  BLEDevice::init(BLE_NAME);
+  BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new ServerCallbacks());
+
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  pCharacteristic = pService->createCharacteristic(
+    CHARACTERISTIC_UUID,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
+
+  pCharacteristic->setCallbacks(new MyCallbacks());
+
+  pCharacteristic->addDescriptor(new BLE2902());
+
+  mac_address = BLEDevice::getAddress().toString().c_str();
+
+  esp_ble_gap_set_device_name(("MM-" + mac_address).c_str());
+  esp_bt_dev_set_device_name(("MM-" + mac_address).c_str());
+
+  pService->start();
+
+  pAdvertising = pServer->getAdvertising();
+  pAdvertising->start();
+  
+  initBNO();
+  //initICM();
+  xTaskCreatePinnedToCore(
+    TaskBluetooth, "TaskBluetooth", 10000, NULL, 1, NULL, 0);
+
+  xTaskCreatePinnedToCore(
+  TaskReadBNO, "TaskReadBNO", 10000, NULL, 1, NULL, 1);
+  //TaskReadICM, "TaskReadICM", 10000, NULL, 1, NULL, 1);
+
+}
+
+
+void initBNO() {
+  delay(2000); // Wait for BNO080 to boot
+  
+  Wire.begin(9, 8); // Set I2C pins to 9 for SDA and 8 for SCL
+  Wire.setClock(400000); // Set I2C clock speed to 400kHz
+
+  // Attempt to initialize the BNO080 sensor
+  if (!myBNO.begin(0x4B, Wire)) {
+    Serial.println("BNO080 not detected at I2C address 0x4B. Check your connections and the BNO080 datasheet.");
+    while (1);
+  }
+
+  myBNO.enableRotationVector(50); // Send rotation vector data every 50ms
+
+  Serial.println(F("Rotation vector enabled"));
+  Serial.println(F("Output in form i, j, k, real, accuracy"));
 
   bool initialized = false;
-  while (!initialized)
-  {
-
-    // Initialize the ICM-20948
-    // If the DMP is enabled, .begin performs a minimal startup. We need to configure the sample mode etc. manually.
-#ifdef USE_SPI
-    myICM.begin(CS_PIN, SPI_PORT);
-#else
-    myICM.begin(WIRE_PORT, AD0_VAL);
-#endif
-
-#ifndef QUAT_ANIMATION
-    SERIAL_PORT.print(F("Initialization of the sensor returned: "));
-    SERIAL_PORT.println(myICM.statusString());
-#endif
-    if (myICM.status != ICM_20948_Stat_Ok)
-    {
-#ifndef QUAT_ANIMATION
-      SERIAL_PORT.println(F("Trying again..."));
-#endif
-      delay(500);
-    }
-    else
-    {
+  while (!initialized) {
+    // Check if the sensor is ready (a successful initialization)
+    if (myBNO.begin(0x4B, Wire)) {
       initialized = true;
+      Serial.println("BNO080 initialized successfully.");
+    } else {
+      Serial.println("BNO080 not detected, retrying...");
+      delay(500);
+      
     }
-  }
-
-#ifndef QUAT_ANIMATION
-  SERIAL_PORT.println(F("Device connected!"));
-#endif
-
-  bool success = true; // Use success to show if the DMP configuration was successful
-
-  // Initialize the DMP. initializeDMP is a weak function. You can overwrite it if you want to e.g. to change the sample rate
-  success &= (myICM.initializeDMP() == ICM_20948_Stat_Ok);
-
-  // DMP sensor options are defined in ICM_20948_DMP.h
-  //    INV_ICM20948_SENSOR_ACCELEROMETER               (16-bit accel)
-  //    INV_ICM20948_SENSOR_GYROSCOPE                   (16-bit gyro + 32-bit calibrated gyro)
-  //    INV_ICM20948_SENSOR_RAW_ACCELEROMETER           (16-bit accel)
-  //    INV_ICM20948_SENSOR_RAW_GYROSCOPE               (16-bit gyro + 32-bit calibrated gyro)
-  //    INV_ICM20948_SENSOR_MAGNETIC_FIELD_UNCALIBRATED (16-bit compass)
-  //    INV_ICM20948_SENSOR_GYROSCOPE_UNCALIBRATED      (16-bit gyro)
-  //    INV_ICM20948_SENSOR_STEP_DETECTOR               (Pedometer Step Detector)
-  //    INV_ICM20948_SENSOR_STEP_COUNTER                (Pedometer Step Detector)
-  //    INV_ICM20948_SENSOR_GAME_ROTATION_VECTOR        (32-bit 6-axis quaternion)
-  //    INV_ICM20948_SENSOR_ROTATION_VECTOR             (32-bit 9-axis quaternion + heading accuracy)
-  //    INV_ICM20948_SENSOR_GEOMAGNETIC_ROTATION_VECTOR (32-bit Geomag RV + heading accuracy)
-  //    INV_ICM20948_SENSOR_GEOMAGNETIC_FIELD           (32-bit calibrated compass)
-  //    INV_ICM20948_SENSOR_GRAVITY                     (32-bit 6-axis quaternion)
-  //    INV_ICM20948_SENSOR_LINEAR_ACCELERATION         (16-bit accel + 32-bit 6-axis quaternion)
-  //    INV_ICM20948_SENSOR_ORIENTATION                 (32-bit 9-axis quaternion + heading accuracy)
-
-  // Enable the DMP orientation sensor
-  success &= (myICM.enableDMPSensor(INV_ICM20948_SENSOR_ORIENTATION) == ICM_20948_Stat_Ok);
-
-  // Enable any additional sensors / features
-  //success &= (myICM.enableDMPSensor(INV_ICM20948_SENSOR_RAW_GYROSCOPE) == ICM_20948_Stat_Ok);
-  //success &= (myICM.enableDMPSensor(INV_ICM20948_SENSOR_RAW_ACCELEROMETER) == ICM_20948_Stat_Ok);
-  //success &= (myICM.enableDMPSensor(INV_ICM20948_SENSOR_MAGNETIC_FIELD_UNCALIBRATED) == ICM_20948_Stat_Ok);
-
-  // Configuring DMP to output data at multiple ODRs:
-  // DMP is capable of outputting multiple sensor data at different rates to FIFO.
-  // Setting value can be calculated as follows:
-  // Value = (DMP running rate / ODR ) - 1
-  // E.g. For a 5Hz ODR rate when DMP is running at 55Hz, value = (55/5) - 1 = 10.
-  success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Quat9, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-  //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Accel, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-  //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Gyro, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-  //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Gyro_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-  //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Cpass, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-  //success &= (myICM.setDMPODRrate(DMP_ODR_Reg_Cpass_Calibr, 0) == ICM_20948_Stat_Ok); // Set to the maximum
-
-  // Enable the FIFO
-  success &= (myICM.enableFIFO() == ICM_20948_Stat_Ok);
-
-  // Enable the DMP
-  success &= (myICM.enableDMP() == ICM_20948_Stat_Ok);
-
-  // Reset DMP
-  success &= (myICM.resetDMP() == ICM_20948_Stat_Ok);
-
-  // Reset FIFO
-  success &= (myICM.resetFIFO() == ICM_20948_Stat_Ok);
-
-  // Check success
-  if (success)
-  {
-#ifndef QUAT_ANIMATION
-    SERIAL_PORT.println(F("DMP enabled!"));
-#endif
-  }
-  else
-  {
-    SERIAL_PORT.println(F("Enable DMP failed!"));
-    SERIAL_PORT.println(F("Please check that you have uncommented line 29 (#define ICM_20948_USE_DMP) in ICM_20948_C.h..."));
-    while (1)
-      ; // Do nothing more
   }
 }
 
-void loop()
-{
-  // Read any DMP data waiting in the FIFO
-  // Note:
-  //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFONoDataAvail if no data is available.
-  //    If data is available, readDMPdataFromFIFO will attempt to read _one_ frame of DMP data.
-  //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFOIncompleteData if a frame was present but was incomplete
-  //    readDMPdataFromFIFO will return ICM_20948_Stat_Ok if a valid frame was read.
-  //    readDMPdataFromFIFO will return ICM_20948_Stat_FIFOMoreDataAvail if a valid frame was read _and_ the FIFO contains more (unread) data.
-  icm_20948_DMP_data_t data;
-  myICM.readDMPdataFromFIFO(&data);
+// void initICM(){
+//    WIRE_PORT.begin(13,14);
+//   WIRE_PORT.setClock(400000);
 
-  if ((myICM.status == ICM_20948_Stat_Ok) || (myICM.status == ICM_20948_Stat_FIFOMoreDataAvail)) // Was valid data available?
-  {
-    //SERIAL_PORT.print(F("Received data! Header: 0x")); // Print the header in HEX so we can see what data is arriving in the FIFO
-    //if ( data.header < 0x1000) SERIAL_PORT.print( "0" ); // Pad the zeros
-    //if ( data.header < 0x100) SERIAL_PORT.print( "0" );
-    //if ( data.header < 0x10) SERIAL_PORT.print( "0" );
-    //SERIAL_PORT.println( data.header, HEX );
+  
+//   bool initialized = false;
+//   while (!initialized)
+//   {
+//     if (myICM.status != ICM_20948_Stat_Ok){
+//       myICM.begin(WIRE_PORT, AD0_VAL);
+//       delay(500);
+//     }
+//     else
+//     {
+//       initialized = true;
+//     }
+//   }
+// }
 
-    if ((data.header & DMP_header_bitmap_Quat9) > 0) // We have asked for orientation data so we should receive Quat9
-    {
-      // Q0 value is computed from this equation: Q0^2 + Q1^2 + Q2^2 + Q3^2 = 1.
-      // In case of drift, the sum will not add to 1, therefore, quaternion data need to be corrected with right bias values.
-      // The quaternion data is scaled by 2^30.
+// void initBNO(){
+//    WIRE_PORT.begin(13,14);
+//   WIRE_PORT.setClock(400000);
 
-      //SERIAL_PORT.printf("Quat9 data is: Q1:%ld Q2:%ld Q3:%ld Accuracy:%d\r\n", data.Quat9.Data.Q1, data.Quat9.Data.Q2, data.Quat9.Data.Q3, data.Quat9.Data.Accuracy);
+  
+//   bool initialized = false;
+//   while (!initialized)
+//   {
+//     if (myBNO.status != BNO_Stat_Ok){
+//       myBNO.begin(WIRE_PORT, AD0_VAL);
+//       delay(500);
+//     }
+//     else
+//     {
+//       initialized = true;
+//     }
+//   }
+// }
+// void initBNO() {
+//   Wire.begin(13, 14); // Use GPIO 13 for SCL and GPIO 14 for SDA
+//   Wire.setClock(400000); // Set I2C clock speed to 400kHz
 
-      // Scale to +/- 1
-      double q1 = ((double)data.Quat9.Data.Q1) / 1073741824.0; // Convert to double. Divide by 2^30
-      double q2 = ((double)data.Quat9.Data.Q2) / 1073741824.0; // Convert to double. Divide by 2^30
-      double q3 = ((double)data.Quat9.Data.Q3) / 1073741824.0; // Convert to double. Divide by 2^30
-      double q0 = sqrt(1.0 - ((q1 * q1) + (q2 * q2) + (q3 * q3)));
+//   bool initialized = false;
+//   while (!initialized) {
+//     if (!bno.begin()) {  // Initialize BNO055 sensor
+//       Serial.println("BNO055 not detected, retrying...");
+//       delay(500);
+//     } else {
+//       bno.setExtCrystalUse(true); // Enable external crystal for better accuracy
+//       initialized = true;
+//       Serial.println("BNO055 initialized successfully.");
+//     }
+//   }
+// }
+void loop() {
+  // Nothing to do in the loop, all tasks are handled by FreeRTOS tasks.
+}
 
-#ifndef QUAT_ANIMATION
-      SERIAL_PORT.print(q0, 3);
-      SERIAL_PORT.print(F(" "));
-      SERIAL_PORT.print(q1, 3);
-      SERIAL_PORT.print(F(" "));
-      SERIAL_PORT.print(q2, 3);
-      SERIAL_PORT.print(F(" "));
-      SERIAL_PORT.print(q3, 3);
-      SERIAL_PORT.print(F(" Accuracy:"));
-      SERIAL_PORT.println(data.Quat9.Data.Accuracy);
-#else
-      // Output the Quaternion data in the format expected by ZaneL's Node.js Quaternion animation tool
-      SERIAL_PORT.print(F("{\"quat_w\":"));
-      SERIAL_PORT.print(q0, 3);
-      SERIAL_PORT.print(F(", \"quat_x\":"));
-      SERIAL_PORT.print(q1, 3);
-      SERIAL_PORT.print(F(", \"quat_y\":"));
-      SERIAL_PORT.print(q2, 3);
-      SERIAL_PORT.print(F(", \"quat_z\":"));
-      SERIAL_PORT.print(q3, 3);
-      SERIAL_PORT.println(F("}"));
-#endif
-    }
+
+
+void BNO_Show(){
+  Serial.println("BNO_Show function called.");
+  if (myBNO.dataAvailable() == true) {
+    Serial.println("Data available from BNO");
+    quat.x = myBNO.getQuatI();
+    quat.y = myBNO.getQuatJ();
+    quat.z = myBNO.getQuatK();
+    quat.w = myBNO.getQuatReal();
+    
+    Serial.print("Quaternion: ");
+    Serial.print(quat.x, 4);
+    Serial.print(", ");
+    Serial.print(quat.y, 4);
+    Serial.print(", ");
+    Serial.print(quat.z, 4);
+    Serial.print(", ");
+    Serial.println(quat.w, 4);
   }
 
-  if (myICM.status != ICM_20948_Stat_FIFOMoreDataAvail) // If more data is available then we should read it right away - and not delay
-  {
-    delay(10);
+}
+
+void TaskBluetooth(void *pvParameters) {
+  for (;;) {
+    static uint32_t prev_ms_ble = millis();
+    if (millis() > prev_ms_ble + 1000 / 40) {
+      prev_ms_ble = millis();
+      String url = mac_address + " " + String(quat.x, 4) + " " + String(quat.y, 4) + " " + String(quat.z, 4) + " " + String(quat.w, 4);
+      pCharacteristic->setValue(url.c_str());
+      pCharacteristic->notify();
+    }
+    vTaskDelay(1);
+  }
+}
+
+void TaskReadBNO(void *pvParameters) {
+  for (;;) {
+    BNO_Show();
+    vTaskDelay(50); // Update every 50ms
   }
 }

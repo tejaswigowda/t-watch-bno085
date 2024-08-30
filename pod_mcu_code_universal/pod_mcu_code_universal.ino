@@ -15,6 +15,7 @@
 #include <ArduinoOTA.h>
 #include <EEPROM.h>
 
+bool isbno = true;
 #define EEPROM_SIZE 1
 
 unsigned long lastTime = 0;
